@@ -49,4 +49,8 @@ typedef struct {
 const GanttSlot *get_gantt_slots(void);
 int              get_gantt_count(void);
 
+/* Restore scheduling state from a loaded database record */
+void set_gantt_slots(const GanttSlot *slots, int count);
+void set_sched_output(const char *text);
+
 #endif /* SCHEDULING_H */

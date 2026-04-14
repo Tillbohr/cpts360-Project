@@ -28,6 +28,17 @@ const char *get_sched_output(void) {
     return sched_buf;
 }
 
+void set_sched_output(const char *text) {
+    strncpy(sched_buf, text, sizeof(sched_buf) - 1);
+    sched_buf[sizeof(sched_buf) - 1] = '\0';
+    sched_pos = (int)strlen(sched_buf);
+}
+
+void set_gantt_slots(const GanttSlot *slots, int count) {
+    gantt_count = count < MAX_SLOTS ? count : MAX_SLOTS;
+    memcpy(gantt_slots, slots, gantt_count * sizeof(GanttSlot));
+}
+
 static void sched_printf(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
