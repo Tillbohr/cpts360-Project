@@ -12,9 +12,16 @@ Output buffer — replaces printf so results display in the GUI
 static char sched_buf[65536];
 static int  sched_pos = 0;
 
+static GanttSlot gantt_slots[MAX_SLOTS];
+static int       gantt_count = 0;
+
+const GanttSlot *get_gantt_slots(void) { return gantt_slots; }
+int              get_gantt_count(void)  { return gantt_count; }
+
 void clear_sched_output(void) {
-    sched_pos = 0;
+    sched_pos   = 0;
     sched_buf[0] = '\0';
+    gantt_count = 0;
 }
 
 const char *get_sched_output(void) {
@@ -235,4 +242,10 @@ Gantt Chart Helper
 ------------------------------ */
 void print_gantt(int pid, int start, int end) {
     sched_printf("P%d\t[%d -> %d]\n", pid, start, end);
+    if (gantt_count < MAX_SLOTS) {
+        gantt_slots[gantt_count].pid   = pid;
+        gantt_slots[gantt_count].start = start;
+        gantt_slots[gantt_count].end   = end;
+        gantt_count++;
+    }
 }

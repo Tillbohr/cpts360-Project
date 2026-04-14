@@ -37,4 +37,16 @@ void print_gantt(int pid, int start, int end);
 void        clear_sched_output(void);
 const char *get_sched_output(void);
 
+/* Gantt slots — structured data for graphical chart */
+typedef struct {
+    int pid;
+    int start;
+    int end;
+} GanttSlot;
+
+#define MAX_SLOTS 1024
+
+const GanttSlot *get_gantt_slots(void);
+int              get_gantt_count(void);
+
 #endif /* SCHEDULING_H */
