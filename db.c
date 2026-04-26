@@ -6,6 +6,30 @@
 
 static sqlite3 *db_handle = NULL;
 
+/* ── Single-entry simulation cache ─────────────────────────── */
+typedef struct {
+    int       valid;
+    int       sim_id;
+    char      algo[64];
+    int       quantum;
+    char     *text;                      /* heap-allocated, DB_TEXT_SIZE bytes */
+    Process   procs[MAX_PROCESSES];
+    int       n_procs;
+    GanttSlot slots[MAX_SLOTS];
+    int       n_slots;
+} SimCache;
+
+static SimCache sim_cache = { .valid = 0 };
+
+static void cache_invalidate(void)
+{
+    if (sim_cache.valid && sim_cache.text) {
+        free(sim_cache.text);
+        sim_cache.text = NULL;
+    }
+    sim_cache.valid = 0;
+}
+
 /* ── Schema ─────────────────────────────────────────────── */
 static const char *CREATE_SQL =
     "PRAGMA foreign_keys = ON;"
@@ -57,6 +81,7 @@ int db_open(const char *path)
 
 void db_close(void)
 {
+    cache_invalidate();
     if (db_handle) {
         sqlite3_close(db_handle);
         db_handle = NULL;
@@ -159,6 +184,7 @@ int db_save_simulation(
     }
 
     sqlite3_exec(db_handle, "COMMIT;", NULL, NULL, NULL);
+    cache_invalidate();   /* new save invalidates any cached load */
     return (int)sim_id;
 }
 
@@ -196,14 +222,14 @@ int db_load_simulations(SimRecord **out)
     while (sqlite3_step(stmt) == SQLITE_ROW && idx < count) {
         recs[idx].id = sqlite3_column_int(stmt, 0);
 
-        strncpy(recs[idx].algorithm,
-                (const char *)sqlite3_column_text(stmt, 1), 63);
+        const char *algo = (const char *)sqlite3_column_text(stmt, 1);
+        strncpy(recs[idx].algorithm, algo ? algo : "", 63);
         recs[idx].algorithm[63] = '\0';
 
         recs[idx].quantum = sqlite3_column_int(stmt, 2);
 
-        strncpy(recs[idx].timestamp,
-                (const char *)sqlite3_column_text(stmt, 3), 31);
+        const char *ts = (const char *)sqlite3_column_text(stmt, 3);
+        strncpy(recs[idx].timestamp, ts ? ts : "", 31);
         recs[idx].timestamp[31] = '\0';
 
         recs[idx].avg_waiting    = sqlite3_column_double(stmt, 4);
@@ -231,6 +257,23 @@ int db_load_simulation(
 {
     if (!db_handle) return -1;
 
+    /* ── Cache hit ── */
+    if (sim_cache.valid && sim_cache.sim_id == sim_id) {
+        strncpy(algo_out, sim_cache.algo, 63);
+        algo_out[63] = '\0';
+        *quantum_out = sim_cache.quantum;
+        strncpy(text_out, sim_cache.text, DB_TEXT_SIZE - 1);
+        text_out[DB_TEXT_SIZE - 1] = '\0';
+        memcpy(procs_out, sim_cache.procs,
+               sim_cache.n_procs * sizeof(Process));
+        *n_procs_out = sim_cache.n_procs;
+        memcpy(slots_out, sim_cache.slots,
+               sim_cache.n_slots * sizeof(GanttSlot));
+        *n_slots_out = sim_cache.n_slots;
+        return 0;
+    }
+
+    /* ── Cache miss: query the database ── */
     sqlite3_stmt *stmt;
 
     /* Simulation header */
@@ -244,13 +287,12 @@ int db_load_simulation(
         sqlite3_finalize(stmt);
         return -1;
     }
-    strncpy(algo_out,
-            (const char *)sqlite3_column_text(stmt, 0), 63);
+    const char *algo = (const char *)sqlite3_column_text(stmt, 0);
+    strncpy(algo_out, algo ? algo : "", 63);
     algo_out[63] = '\0';
     *quantum_out = sqlite3_column_int(stmt, 1);
-    strncpy(text_out,
-            (const char *)sqlite3_column_text(stmt, 2),
-            DB_TEXT_SIZE - 1);
+    const char *txt = (const char *)sqlite3_column_text(stmt, 2);
+    strncpy(text_out, txt ? txt : "", DB_TEXT_SIZE - 1);
     text_out[DB_TEXT_SIZE - 1] = '\0';
     sqlite3_finalize(stmt);
 
@@ -297,6 +339,24 @@ int db_load_simulation(
     }
     *n_slots_out = ns;
     sqlite3_finalize(stmt);
+
+    /* ── Populate cache ── */
+    if (!sim_cache.text) {
+        sim_cache.text = malloc(DB_TEXT_SIZE);
+    }
+    if (sim_cache.text) {
+        sim_cache.sim_id  = sim_id;
+        strncpy(sim_cache.algo, algo_out, 63);
+        sim_cache.algo[63] = '\0';
+        sim_cache.quantum = *quantum_out;
+        strncpy(sim_cache.text, text_out, DB_TEXT_SIZE - 1);
+        sim_cache.text[DB_TEXT_SIZE - 1] = '\0';
+        memcpy(sim_cache.procs, procs_out, np * sizeof(Process));
+        sim_cache.n_procs = np;
+        memcpy(sim_cache.slots, slots_out, ns * sizeof(GanttSlot));
+        sim_cache.n_slots = ns;
+        sim_cache.valid   = 1;
+    }
 
     return 0;
 }
